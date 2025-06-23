@@ -21,7 +21,7 @@ bot = commands.Bot(command_prefix = '/', intents = intents)
 
 @bot.event
 async def on_ready():
-    await bot.change_presence(activity=discord.CustomActivity(name = "🛡️ Monitoring for raid alerts"))
+    await bot.change_presence(activity=discord.CustomActivity(name = "🛡️ Monitoring for raids 🛡️ /pair"))
     await bot.tree.sync()
     print("Bot Synced")
 
@@ -50,9 +50,6 @@ async def startprocess(interaction: discord.Interaction):
 
 @bot.tree.command(name="email",description='Enter your RustAlert email address')
 async def inputemail(interaction: discord.Interaction, your_email: str):
-        embed = discord.Embed(title = "RustAlert Server Status", description = "", color = discord.Color.from_rgb(216, 0, 0))
-        embed.set_thumbnail(url = "https://cdn.discordapp.com/attachments/1382848303674167357/1382853711377731754/maybeicon.png?ex=685887e0&is=68573660&hm=8189d9fa99a4b66dfc319408cae701c495e97a436ddd33215c3131757b91604f&")
-        embed.add_field(name = "Step 1", value = your_email)
 
         response = (
              supabase.table("rust_tokens")
@@ -71,7 +68,7 @@ async def inputemail(interaction: discord.Interaction, your_email: str):
 
         server_response = (
              supabase.table("servers")
-             .select("name")
+             .select("name, smart_alarm_active, triggers, trigger_time")
              .eq("steam_id", steamid)
              .execute()
         )
@@ -82,6 +79,15 @@ async def inputemail(interaction: discord.Interaction, your_email: str):
              return
 
         print(server_response.data)
+        serverName = server_response.data[0]['name']
+        activeStatus = server_response.data[0]['smart_alarm_active']
+        triggers = server_response.data[0]['triggers']
+        triggerTime = server_response.data[0]['trigger_time']
+
+        embed = discord.Embed(title = "RustAlert Server Status", description = "", color = discord.Color.from_rgb(216, 0, 0))
+        embed.set_thumbnail(url = "https://cdn.discordapp.com/attachments/1382848303674167357/1382853711377731754/maybeicon.png?ex=685887e0&is=68573660&hm=8189d9fa99a4b66dfc319408cae701c495e97a436ddd33215c3131757b91604f&")
+        embed.add_field(name = "SERVER NAME: ", value = serverName)
+        embed.add_field(name = "STATUS: ", value = "CONNECTED")
 
 
         await interaction.response.send_message(embed = embed)
