@@ -9,7 +9,7 @@ from discord import FFmpegPCMAudio, FFmpegAudio
 import asyncio
 import requests
 import urllib3
-import os
+import os, json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -21,6 +21,7 @@ url: str = os.getenv('SUPABASE_URL')
 key: str = os.getenv('SUPABASE_KEY')
 
 active_subscriptions = {}
+settings_file = "settings.json"
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
@@ -35,6 +36,29 @@ async def on_ready():
     await bot.tree.sync()
     print("Bot Synced")
 
+# JSON settings file code
+
+def load_settings():
+     with open(settings_file, "r") as f:
+          return json.load(f)
+
+def save_settings(data):
+    with open(settings_file, "w") as f:
+        json.dump(data, f, indent=4)
+
+def update_settings(SteamID: str, voice: None, audio: None):
+    settings = load_settings()
+
+    if SteamID not in settings:
+        settings[SteamID] = {}
+
+    if voice is not None:
+     settings[SteamID]["voice_channel"] = voice
+    if audio is not None:
+     settings[SteamID]["audio"] = audio
+
+    save_settings(settings)
+
 # Bot Classes
 
 class InitialButtons(discord.ui.View):
@@ -46,7 +70,13 @@ class InitialButtons(discord.ui.View):
 
     @discord.ui.button(label = "No, I need to pair with a server", style = discord.ButtonStyle.red)
     async def no_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.message.edit(view = ChooseAudio())
+        step2 = discord.File("./images/step2.png", filename="step2.png")
+        step3 = discord.File("./images/step3.png", filename="step3.png")
+        await interaction.response.send_message("```Follow these instructions to pair with a server:```", ephemeral = True)
+        await interaction.followup.send("Step 1: Go to the [Official Rust+ Companion](https://companion-rust.facepunch.com/login) and follow the steps. Don't close out of the tab", suppress_embeds=True, ephemeral = True)
+        await interaction.followup.send("Step 2: On the final page, right click with your mouse and press View Page Source", file=step2, ephemeral = True)
+        await interaction.followup.send("Step 3: You will find a page that looks like the image below. Copy all of the text and paste it under ```/setup *paste all the text here*``` \nThis will link your account to Rust+ and start the pairing process", file=step3, ephemeral = True)
+
 
 class RegisterWithRustPlus(discord.ui.View):
 
@@ -56,8 +86,9 @@ class RegisterWithRustPlus(discord.ui.View):
 
 
 class ChooseVC(discord.ui.View):
-     def __init__(self):
+     def __init__(self, SteamID: str):
         super().__init__()
+        self.SteamID = SteamID
         self.channel_select = discord.ui.ChannelSelect(
             channel_types=[discord.ChannelType.voice],
             placeholder="Select a voice channel",
@@ -73,23 +104,21 @@ class ChooseVC(discord.ui.View):
         selected_channel_id = int(selected_channel)
         channel = interaction.guild.get_channel(int(selected_channel))
 
-        with open('settings.txt', 'w') as w:
-             w.write('')
-        with open('settings.txt', 'a') as f:
-             f.write(f'voice_channel={selected_channel_id}\n')
+        update_settings(self.SteamID, voice=selected_channel_id)
+
         await interaction.response.send_message(f"Channel selected", ephemeral=True)
 
 
 class ChooseAudio(discord.ui.View):
-     def __init__(self):
+     def __init__(self, SteamID):
         super().__init__()
+        self.SteamID = SteamID
         self.select = discord.ui.Select(placeholder="Select an audio", min_values=1, max_values=1,
             options=[
             discord.SelectOption(label="Joey Diaz", value="joey", emoji="🦅", description='If you want to get hype'),
             discord.SelectOption(label="Donald Trump", value="trump", emoji="💵", description='47th President of the US'),
-            discord.SelectOption(label="Arthur Morgan", value="trump", emoji="🤠", description='Hey boah hop on'),
+            discord.SelectOption(label="Arthur Morgan", value="arthur", emoji="🤠", description='Hey boah hop on'),
             discord.SelectOption(label="Chicken Balls", value="chickenballs", emoji="🐔", description='Hey boah hop on'),
-            discord.SelectOption(label="Hot", value="hot", emoji="🔥", description='Old white man'),
             discord.SelectOption(label="Crab Rave", value="crab", emoji="🦀", description='You already know what it is')
         ])
         self.select.callback = self.select_callback
@@ -97,9 +126,11 @@ class ChooseAudio(discord.ui.View):
 
      async def select_callback(self, interaction: discord.Interaction):
         choice = self.select.values[0]
-        with open('settings.txt', 'a') as f:
-             f.write(f'audio={choice}\n')
+        
+        update_settings(self.SteamID, audio=choice)
+
         await interaction.response.send_message(f"Server pairing succesfully set up. Now, connect a seismic sensor to a smart alarm and click pair on the smart alarm.", ephemeral=True)
+        await interaction.followup.send(f"Note: In order to use the custom raid audios for free you must either add rustalert.com to your steam name or [upgrade to premium](https://www.rustalert.com/pricing)", ephemeral=True)
 
 # Bot tree commands
 
@@ -213,7 +244,8 @@ async def inputToken(interaction: discord.Interaction, paste_here: str):
                data = response.json()
                serverName = data['name']
                await interaction.followup.send(f"✅ Successfully paired with server: ```{serverName}```")
-               await interaction.followup.send(f"Select the voice channel you want the bot to join when you get raided", view=ChooseVC(), ephemeral=True)
+               await interaction.followup.send(f"Select the voice channel you want the bot to join when you get raided", view=ChooseVC(SteamID), ephemeral=True)
+               await interaction.followup.send(f"Select the audio you want the bot to play when you get raided", view=ChooseAudio(SteamID), ephemeral=True)
                break
           print(f'Attempt {attempt + 1}: Server not ready')
           await asyncio.sleep(2)
@@ -221,9 +253,6 @@ async def inputToken(interaction: discord.Interaction, paste_here: str):
           await interaction.followup.send("❌ Pairing for server timed out. Use /steamid to try again when ready")
 
      await watch_realtime(SteamID, interaction.channel)
-
-
-
      
 
 @bot.tree.command(name="disconnect", description="Disconnect from a server")
@@ -260,32 +289,8 @@ async def help(interaction: discord.Interaction):
      embed.add_field(name = "```/setup```", value = "```Use this if this is your first time pairing using the discord bot. Follow the steps it says to start the server pairing process.```", inline=False)
      embed.add_field(name = "```/steamid```", value = "```Use this if you have paired with a server using the discord bot in the past. This will start the server pairing process.```", inline=False)
      embed.add_field(name = "```/disconnect```", value = "```Use this if you are paired with a server using the discord bot and wish to disconnect from the server.```", inline=False)
-     embed.add_field(name = "```For additional help:```", value = "```Join our discord server and open a ticket```", inline=False)
+     embed.add_field(name = "```For additional help:```", value = "```[Join our discord](https://discord.gg/5p3bPWR3By) server and open a ticket```", inline=False)
      await interaction.response.send_message(embed = embed)
-
-     with open("settings.txt", "r") as f:
-        for line in f:
-            if line.startswith("voice_channel="):
-                channel_id = int(line.strip().split("=")[1])
-                break
-        else:
-            print("❌ No voice channel found in settings.")
-            return
-        
-     channel = await bot.fetch_channel(channel_id)
-     voice_client = await channel.connect()
-
-     audio_source = discord.FFmpegPCMAudio("./sounds/default.mp3")
-     audio_source = discord.PCMVolumeTransformer(audio_source, volume=0.4)
-     voice_client.play(audio_source)
-     print('playing')
-
-     while voice_client.is_playing():
-          await asyncio.sleep(.1)
-            
-     await voice_client.disconnect()
-       
-
 
 @bot.tree.command(name="steamid", description="Use this if you have paired with a server using the discord bot in the past")
 async def free(interaction: discord.Interaction, your_steamid: str):
@@ -326,8 +331,8 @@ async def free(interaction: discord.Interaction, your_steamid: str):
                data = response.json()
                serverName = data['name']
                await interaction.followup.send(f"✅ Successfully paired with server: ```{serverName}```")
-               await interaction.followup.send(f"Select the voice channel you want the bot to join when you get raided", view=ChooseVC(), ephemeral=True)
-               await interaction.followup.send(f"Select the audio you want the bot to play when you get raided", view=ChooseAudio(), ephemeral=True)
+               await interaction.followup.send(f"Select the voice channel you want the bot to join when you get raided", view=ChooseVC(SteamId), ephemeral=True)
+               await interaction.followup.send(f"Select the audio you want the bot to play when you get raided", view=ChooseAudio(SteamId), ephemeral=True)
                break
           print(f'Attempt {attempt + 1}: Server not ready')
           await asyncio.sleep(2)
@@ -387,6 +392,7 @@ async def handle_trigger(payload: dict, channel=None):
         embed.add_field(name = "LAST CALL: ", value = f"```NEVER```")
 
         await channel.send(f"✅ **Alert:** Smart Alarm was succesfully paired on `{name}`!")
+        await channel.send(f"Note: In order to use the custom raid audios for free you must either add rustalert.com to your steam name or [upgrade to premium](https://www.rustalert.com/pricing)")
         
         await channel.send(embed=embed)
 
@@ -409,23 +415,12 @@ async def write_config(interaction: discord.Interaction):
      await interaction.response.send_message(f"Select the voice channel you want the bot to join when you get raided", view=ChooseVC(), ephemeral=True)
 
 async def join_vc(SteamID: str):
-     with open("settings.txt", "r") as f:
-        for line in f:
-            if line.startswith("voice_channel="):
-                channel_id = int(line.strip().split("=")[1])
-                break
-        else:
-            print("❌ No voice channel found in settings.")
-            return
-        
-     with open("settings.txt", "r") as f:
-        for line in f:
-            if line.startswith("audio="):
-                music = int(line.strip().split("=")[1])
-                break
-        else:
-            print("❌ No voice channel found in settings.")
-            return
+     
+     settings = load_settings()
+
+     user = settings[SteamID]
+     channel_id = user.get["voice_channel"]
+     music = user.get["audio"]
         
      try:
         channel = await bot.fetch_channel(channel_id)
@@ -434,9 +429,10 @@ async def join_vc(SteamID: str):
         return
      
      if isinstance(channel, discord.VoiceChannel):
-        voice_client = await channel.connect()
+        voice_client = await channel.connect(reconnect=True, timeout=10.0)
 
         if check_name(SteamID):
+          print(f'using audio: {music}.mp3')
           audio_source = discord.FFmpegPCMAudio(f"./sounds/{music}.mp3")
           audio_source = discord.PCMVolumeTransformer(audio_source, volume=0.4)
         else:
@@ -450,7 +446,7 @@ async def join_vc(SteamID: str):
             await asyncio.sleep(.1)
             
         await voice_client.disconnect()
-        print(f"Joined voice channel: {channel.name}")
+        reset_trigger(SteamID)
      else:
         print("❌ Channel ID does not point to a voice channel.")
 
@@ -465,6 +461,9 @@ def check_name(SteamID: str) -> bool:
           return True
      else:
           return False
+     
+def reset_trigger(SteamID: str):
+    response = requests.post('https://backapi.rustalert.com/reset-trigger', json={"SteamID": SteamID}, verify=False)
      
 
 # Raid notifications for premium
@@ -505,7 +504,7 @@ async def premium_realtime(steamid: str, channel=None):
 async def premium_trigger(payload: dict, channel=None):
      
      row = payload["data"]["record"]
-     status = row.get("status")
+     steamid = row.get('steamid')
      name = row.get("name")
      new_triggers = row.get("triggers")
      triggers = 0
@@ -524,28 +523,16 @@ async def premium_trigger(payload: dict, channel=None):
 
         await channel.send(f"⚠️ **Alert:** Smart Alarm was triggered on `{name}`!")
         await channel.send(embed=embed)
-        await premium_vc()
+        await premium_vc(steamid)
 
 
-async def premium_vc():
+async def premium_vc(SteamID: str):
 
-     with open("settings.txt", "r") as f:
-        for line in f:
-            if line.startswith("voice_channel="):
-                channel_id = int(line.strip().split("=")[1])
-                break
-        else:
-            print("❌ No voice channel found in settings.")
-            return
-        
-     with open("settings.txt", "r") as f:
-        for line in f:
-            if line.startswith("audio="):
-                music = int(line.strip().split("=")[1])
-                break
-        else:
-            print("❌ No voice channel found in settings.")
-            return
+     settings = load_settings()
+
+     user = settings[SteamID]
+     channel_id = user.get["voice_channel"]
+     music = user.get["audio"]
         
      try:
         channel = await bot.fetch_channel(channel_id)
